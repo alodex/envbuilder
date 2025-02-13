@@ -636,6 +636,34 @@ func Test_tempRemount(t *testing.T) {
 		err = remount()
 		require.ErrorContains(t, err, assert.AnError.Error())
 	})
+
+	t.Run("ReadWriteMounts", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		mm := NewMockmounter(ctrl)
+		mounts := fakeMounts("/home", "/var/lib/modules:rw", "/proc", "/sys")
+
+		mm.EXPECT().GetMounts().Return(mounts, nil)
+		mm.EXPECT().Stat("/etc/debian_version").Return(nil, os.ErrNotExist)
+		mm.EXPECT().ReadDir("/usr/lib64").Return(nil, os.ErrNotExist)
+		mm.EXPECT().Stat("/var/lib/modules").Return(&fakeFileInfo{name: "modules", isDir: true}, nil)
+		mm.EXPECT().MkdirAll("/.test/var/lib/modules", os.FileMode(0o750)).Times(1).Return(nil)
+		mm.EXPECT().Mount("/var/lib/modules", "/.test/var/lib/modules", "bind", uintptr(syscall.MS_BIND), "").Times(1).Return(nil)
+		mm.EXPECT().Unmount("/var/lib/modules", 0).Times(1).Return(nil)
+		mm.EXPECT().Stat("/etc/debian_version").Return(nil, os.ErrNotExist)
+		mm.EXPECT().Stat("/.test/var/lib/modules").Return(&fakeFileInfo{name: "modules", isDir: true}, nil)
+		mm.EXPECT().MkdirAll("/var/lib/modules", os.FileMode(0o750)).Times(1).Return(nil)
+		mm.EXPECT().Mount("/.test/var/lib/modules", "/var/lib/modules", "bind", uintptr(syscall.MS_BIND), "").Times(1).Return(nil)
+		mm.EXPECT().Unmount("/.test/var/lib/modules", 0).Times(1).Return(nil)
+
+		remount, err := tempRemount(mm, fakeLog(t), "/.test")
+		require.NoError(t, err)
+		err = remount()
+		require.NoError(t, err)
+		// sync.Once should handle multiple remount calls
+		_ = remount()
+	})
 }
 
 // convenience function for generating a slice of *procfs.MountInfo
@@ -647,6 +675,9 @@ func fakeMounts(mounts ...string) []*procfs.MountInfo {
 		if strings.HasSuffix(mp, ":ro") {
 			mp = strings.TrimSuffix(mp, ":ro")
 			o["ro"] = "true"
+		} else if strings.HasSuffix(mp, ":rw") {
+			mp = strings.TrimSuffix(mp, ":rw")
+			o["rw"] = "true"
 		}
 		m = append(m, &procfs.MountInfo{MountPoint: mp, Options: o})
 	}

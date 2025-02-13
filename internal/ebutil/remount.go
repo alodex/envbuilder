@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/procfs"
 )
 
-// TempRemount iterates through all read-only mounted filesystems, bind-mounts them at dest,
+// TempRemount iterates through all read-only and read-write mounted filesystems, bind-mounts them at dest,
 // and unmounts them from their original source. All mount points underneath ignorePrefixes
 // will not be touched.
 //
@@ -55,7 +55,7 @@ func tempRemount(m mounter, logf log.Func, base string, ignorePrefixes ...string
 		return func() error { return nil }, fmt.Errorf("read lib symlinks: %w", err)
 	}
 
-	// temp move of all ro mounts
+	// temp move of all ro and rw mounts
 	mounts := map[string]string{}
 	var restoreOnce sync.Once
 	var merr error
@@ -84,10 +84,11 @@ func tempRemount(m mounter, logf log.Func, base string, ignorePrefixes ...string
 
 outer:
 	for _, mountInfo := range mountInfos {
-		// TODO: do this for all mounts
 		if _, ok := mountInfo.Options["ro"]; !ok {
-			logf(log.LevelDebug, "skip rw mount %s", mountInfo.MountPoint)
-			continue
+			if _, ok := mountInfo.Options["rw"]; !ok {
+				logf(log.LevelDebug, "skip mount %s", mountInfo.MountPoint)
+				continue
+			}
 		}
 
 		for _, prefix := range ignorePrefixes {
@@ -155,6 +156,17 @@ func remount(m mounter, src, dest, libDir string, libsSymlinks map[string][]stri
 	if err := m.Unmount(src, 0); err != nil {
 		return fmt.Errorf("unmount orig src %s: %w", src, err)
 	}
+
+	// Preserve the ro and rw properties
+	if _, ok := libsSymlinks[stat.Name()]; ok {
+		if err := m.Mount(dest, src, "bind", syscall.MS_BIND, ""); err != nil {
+			return fmt.Errorf("bind mount %s => %s: %w", dest, src, err)
+		}
+		if err := m.Unmount(dest, 0); err != nil {
+			return fmt.Errorf("unmount dest %s: %w", dest, err)
+		}
+	}
+
 	return nil
 }
 
