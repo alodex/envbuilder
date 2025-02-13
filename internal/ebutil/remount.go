@@ -84,6 +84,7 @@ func tempRemount(m mounter, logf log.Func, base string, ignorePrefixes ...string
 
 outer:
 	for _, mountInfo := range mountInfos {
+		// Check for both ro and rw mounts
 		if _, ok := mountInfo.Options["ro"]; !ok {
 			if _, ok := mountInfo.Options["rw"]; !ok {
 				logf(log.LevelDebug, "skip mount %s", mountInfo.MountPoint)
@@ -149,24 +150,19 @@ func remount(m mounter, src, dest, libDir string, libsSymlinks map[string][]stri
 		}
 	}
 
-	if err := m.Mount(src, dest, "bind", syscall.MS_BIND, ""); err != nil {
+	// Preserve the ro and rw properties
+	flags := uintptr(syscall.MS_BIND)
+	if _, ok := m.Stat(src).(*os.FileInfo).Mode().Perm() & 0222; !ok {
+		flags |= syscall.MS_RDONLY
+	}
+
+	if err := m.Mount(src, dest, "bind", flags, ""); err != nil {
 		return fmt.Errorf("bind mount %s => %s: %w", src, dest, err)
 	}
 
 	if err := m.Unmount(src, 0); err != nil {
 		return fmt.Errorf("unmount orig src %s: %w", src, err)
 	}
-
-	// Preserve the ro and rw properties
-	if _, ok := libsSymlinks[stat.Name()]; ok {
-		if err := m.Mount(dest, src, "bind", syscall.MS_BIND, ""); err != nil {
-			return fmt.Errorf("bind mount %s => %s: %w", dest, src, err)
-		}
-		if err := m.Unmount(dest, 0); err != nil {
-			return fmt.Errorf("unmount dest %s: %w", dest, err)
-		}
-	}
-
 	return nil
 }
 
