@@ -99,6 +99,10 @@ outer:
 
 		src := mountInfo.MountPoint
 		dest := filepath.Join(base, src)
+		if src == "/" {
+			logf(log.LevelDebug, "skip root mount %s", src)
+			continue
+		}
 		logf(log.LevelDebug, "temp remount %s", src)
 		if err := remount(m, src, dest, libDir, libsSymlinks); err != nil {
 			return restore, fmt.Errorf("temp remount: %w", err)
