@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/procfs"
 )
 
-// TempRemount iterates through all read-only mounted filesystems, bind-mounts them at dest,
+// TempRemount iterates through all read-only and read-write mounted filesystems, bind-mounts them at dest,
 // and unmounts them from their original source. All mount points underneath ignorePrefixes
 // will not be touched.
 //
@@ -55,7 +55,7 @@ func tempRemount(m mounter, logf log.Func, base string, ignorePrefixes ...string
 		return func() error { return nil }, fmt.Errorf("read lib symlinks: %w", err)
 	}
 
-	// temp move of all ro mounts
+	// temp move of all ro and rw mounts
 	mounts := map[string]string{}
 	var restoreOnce sync.Once
 	var merr error
@@ -85,10 +85,10 @@ func tempRemount(m mounter, logf log.Func, base string, ignorePrefixes ...string
 outer:
 	for _, mountInfo := range mountInfos {
 		// TODO: do this for all mounts
-		if _, ok := mountInfo.Options["ro"]; !ok {
-			logf(log.LevelDebug, "skip rw mount %s", mountInfo.MountPoint)
-			continue
-		}
+		// if _, ok := mountInfo.Options["ro"]; !ok {
+		// 	logf(log.LevelDebug, "skip rw mount %s", mountInfo.MountPoint)
+		// 	continue
+		// }
 
 		for _, prefix := range ignorePrefixes {
 			if strings.HasPrefix(mountInfo.MountPoint, prefix) {
@@ -99,6 +99,10 @@ outer:
 
 		src := mountInfo.MountPoint
 		dest := filepath.Join(base, src)
+		if src == "/" {
+			logf(log.LevelDebug, "skip root mount %s", src)
+			continue
+		}
 		logf(log.LevelDebug, "temp remount %s", src)
 		if err := remount(m, src, dest, libDir, libsSymlinks); err != nil {
 			return restore, fmt.Errorf("temp remount: %w", err)
